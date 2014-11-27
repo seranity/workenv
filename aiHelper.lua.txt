@@ -1,0 +1,434 @@
+
+local cc = {}
+local Vector3Lerp = Vector3.Lerp
+local insert = table.insert
+local tableGetN = table.getn
+local Vector3Dis  = Vector3.Distance
+local skill_attack_offset = {x = 0.5, y = 0.5}
+local forwardR = Vector3.back
+local forward = Vector3.forward
+
+--=================================
+-- get a random point besion cur with radius
+--=================================
+function cc.getRandomPointAtCircle(_curPos,radius,chunk)
+	local list = cc.getRandomPointListAtCircle(_curPos,radius,chunk)
+	local count = tableGetN(list)
+	if count == 0 then return {x=_curPos.x,y=_curPos.z} end
+	local n = math.random(1,count)
+	return list[n]
+end
+
+function cc.getRandomPointListAtCircle(_curPos,radius,chunk)
+	local newPos = _curPos
+	local angleSeed = 180 / chunk
+	local list = {}
+	local angle = 0
+	for i=1,chunk do
+		angle = angle + angleSeed
+		local tAngle = angle / 180
+		local pppp = Vector3Lerp(forward,forwardR,tAngle)
+		--Debug.Log("-----got z == "..pppp.z..'\ntAngle = '..tAngle);
+		local z = pppp.z ~= nil and pppp.z or 0
+		local ppz = z < 0 and z * -1 or z
+		local x0 = _curPos.x + x * radius
+		local z0 = _curPos.z + z * radius
+		if cc.isValidPlaceInScene(x0,z0,-2,-1) then 
+			insert(list,{x = x0,y = z0}) 
+		end
+		x0 = _curPos.x - x * radius
+		z0 = _curPos.z - z * radius
+		if cc.isValidPlaceInScene(x0,z0,-2,-1) then
+			insert(list,{x = x0,y = z0}) 
+		end
+	end
+
+	return list
+end
+
+--[[--=================================
+
+--=================================
+--]]
+function cc.getRandomPointAtRect(_x0 , _y0 , _offX , _offY , chunk , validRect)
+	-- Debug.Log('getRandomPointAtRect = \n'.."_x0 = ".._x0..'\n_y0 = '.._y0)
+	Util.DebugTable(validRect)
+	local x_left = _x0 - _offX
+	local x_right = _x0 + _offX
+	local y_top  = _y0 + _offY 
+	local y_bottom = _y0 - _offY
+	local interval_y = _offY * 2 / chunk
+	local interval_x = _offX * 2 / chunk
+	local list = {}
+	for i=1,chunk do
+		local y = y_top - interval_y * (i - 1)
+		if cc.isValidPointAt(x_left,y,validRect) then
+			insert(list,{x = x_left,y = y})
+		end
+		if cc.isValidPointAt(x_right,y,validRect) then
+			insert(list,{x = x_right,y = y})
+		end
+
+		local x = x_left + interval_x * (i - 1)
+		if cc.isValidPointAt(x,y_top,validRect) then
+			insert(list,{x=x,y=y_top})
+		end
+		if cc.isValidPointAt(x,y_bottom,validRect) then
+			insert(list,{x=x,y=y_bottom})
+		end
+	end
+
+	local count = tableGetN(list)
+	--Debug.Log('count = ' ..count)
+	if count == 0 then return {x=_x0,y=_y0} end
+	local n = math.random(1,count)
+	return list[n].x,list[n].y
+end
+
+function cc.isValidPointAt(_x0,_y0,validRect )
+	if _x0 > validRect.min_X + 1.0 and 
+	   _x0 < validRect.max_X - 1.0 and
+	   _y0 < validRect.max_Y - 1.0 and
+	   _y0 > validRect.min_Y + 1.0 then
+	    return true
+	else
+		return false
+	end
+end
+
+--=================================
+-- return x,z
+--=================================
+function cc.getRandomPointAtSceneFloor(x_offset, z_offset)
+	x_offset = x_offset ~= nil and x_offset or 0
+	z_offset = z_offset ~= nil and z_offset or 0
+	local map = CurrentScene.mapInfo
+	local x = math.random(map.min_X + x_offset,map.max_X - x_offset)
+	local z = math.random(map.min_Z + z_offset,map.max_Z - z_offset)
+	return x,z
+end
+
+--=================================
+-- return x,y
+--=================================
+function cc.getRandomPointAtSceneBack(x_offset,y_offset )
+	x_offset = x_offset ~= nil and x_offset or 0
+	y_offset = y_offset ~= nil and y_offset or 0
+	local map = CurrentScene.mapInfo
+	local x = math.random(map.vertical_minX + x_offset,map.vertical_maxX - x_offset)
+	local y = math.random(map.vertical_minY + y_offset,map.vertical_maxY - y_offset)
+	return x,y
+end
+
+
+--[[--=================================
+
+  offset |               | offset
+  	|	 |				 |    |
+  	|	 |		valid	 |    |
+  	|	 |				 | 	  |
+		min_X 			max_X
+--=================================
+--]]
+function cc.isValidPlaceInScene(x,z,x_offset,z_offset)
+	local map = CurrentScene.mapInfo
+	local x_offset = x_offset == nil and 0 or x_offset
+	local z_offset = z_offset == nil and 0 or z_offset
+	if map == nil then return false end
+	if x > map.min_X - x_offset and 
+	   x < map.max_X + x_offset and 
+	   z > map.min_Z - z_offset and 
+	   z < map.max_Z + z_offset then 
+	   return true 
+	end
+	return false
+end
+
+--=================================
+-- input entity,find nearby enemy for
+-- that.
+--=================================
+function cc.findNearbyEnemy(entity,allEnemys)
+	local allEnemyLength = Util.getTableCount(allEnemys)
+	local target = nil
+	local targetDis = nil
+	for i=1,allEnemyLength do
+		if target == nil then
+			target = allEnemys[i]
+			targetDis = Vector3Dis(entity.root.position,target.root.position)
+		else
+			-- check distance
+			local newDis = Vector3Dis(entity.root.position,allEnemys[i].root.position)
+			if newDis < targetDis then
+				target = allEnemys[i]
+				targetDis = newDis
+			end
+		end
+	end
+
+	return target
+end
+
+--=================================
+-- check if some one 
+-- skillData&target is in range
+--=================================
+function cc.checkTargetInSkillRange(skillData,skillEntity,target)
+	if skillData == nil 
+		or skillEntity == nil 
+		or skillEntity.root == nil 
+		or target == nil 
+		or target.root == nil 
+		then 
+		return false
+	end
+
+	-- if xy or xz axis
+	if skillEntity:checkIsXYaxis() == false then
+		return cc.checkTargetInSkillRangeXZ(skillData,skillEntity,target)
+	else
+		return cc.checkTargetInSkillRangeXY(skillData,skillEntity,target)
+	end
+end
+
+function cc.checkTargetInSkillRangeXZ(skillData,skillEntity,target )
+	-- Debug.Log("checkTargetInSkillRange skillData:"..SerializeTable(skillData.range))
+	-- Util.DebugTable(skillData.range)
+	-- Debug.Log("entity position = "..skillEntity.root.position.x);
+
+	local target_at_right = target.root.position.x >= skillEntity.root.position.x and true or false
+	local t_max_z = skillEntity.root.position.z + skillData.range.y * 0.5
+	local t_min_z = skillEntity.root.position.z - skillData.range.y * 0.5
+
+	if target_at_right == true then
+		local t_x = skillEntity.root.position.x + skillData.range.x
+		
+		-- Debug.Log("target_at_right true:"..'\nx = '..t_x..'\nminZ = '..t_min_z..'\nmaxZ = '..t_max_z);
+		-- Debug.ShowGizmosCube(
+		--  	3,
+		-- 	Vector3.New(t_x - skillData.range.x * 0.5 ,skillEntity.root.position.y,skillEntity.root.position.z),
+		-- 	Vector3.New(skillData.range.x,0.1,skillData.range.y));
+
+		if target.root.position.x <= t_x + skill_attack_offset.x 
+			and target.root.position.z <= t_max_z + skill_attack_offset.y
+			and target.root.position.z >= t_min_z - skill_attack_offset.y
+			then return true
+		end
+	else
+		local t_x = skillEntity.root.position.x - skillData.range.x
+
+		-- Debug.Log("target_at_right false:"..'\nx = '..t_x..'\nminZ = '..t_min_z..'\nmaxZ = '..t_max_z);
+		-- Debug.ShowGizmosCube(
+		-- 	3,
+		-- 	Vector3.New(t_x + skillData.range.x * 0.5 ,skillEntity.root.position.y,skillEntity.root.position.z),
+		-- 	Vector3.New(skillData.range.x,0.1,skillData.range.y)); 
+
+		if target.root.position.x >= t_x - skill_attack_offset.x 
+			and target.root.position.z <= t_max_z + skill_attack_offset.y
+			and target.root.position.z >= t_min_z - skill_attack_offset.y
+			then return true
+		end
+	end
+	return false
+end
+
+function cc.checkTargetInSkillRangeXY(skillData,skillEntity,target )
+	--Debug.Log("checkTargetInSkillRange skillData = ");
+	--Util.DebugTable(skillData.range)
+	-- Debug.Log("entity position = "..skillEntity.root.position.x);
+
+	--need compare the Y ,should move too height!
+	if skillEntity.canUseSkillHeight == nil then return false end
+	if skillEntity.root.position.y >= skillEntity.canUseSkillHeight + 0.1 then return false end
+
+	-- for xy axis
+	-- target allways at 'front'
+	local bodyZ = 2.0
+	local t_min_z = skillEntity.root.position.z - skillData.range.y - bodyZ
+	local t_max_z = skillEntity.root.position.z + skill_attack_offset.y
+	local t_min_x = skillEntity.root.position.x - skillData.range.x * 0.5
+	local t_max_x = skillEntity.root.position.x + skillData.range.x * 0.5 
+
+	--NOTE:dont need check Z.
+	--make the enemy always do skill when in his using skill position.
+
+	if target.root.position.x <= t_max_x
+		and target.root.position.x >= t_min_x
+		--and target.root.position.z <= t_max_z
+		--and target.root.position.z >= t_min_z
+		then return true
+	end
+	return false
+end
+
+
+--=================================
+-- {x,y}
+--=================================
+function cc.checkMovePositionArrived(x0,y0,x1,y1 )
+	local x = x1 - x0
+	local y = y1 - y0 
+	local sql = x * x + y * y
+
+	if sql <= 0.1  then return true end
+
+	return false
+end
+
+--[[
+VER 0.1
+function cc.getPointAtCircleExcludeFriends(myself, radius, chunk, target, allFriends) 
+	--divide the circle to 18 parts and exclude parts exist friends
+	
+	local angleSeed = 180 / chunk
+	local list = {}
+	local nFriends = Util.getTableCount(allFriends)
+
+	local dir = Util.Vector3Sub(myself.entity.root.position, target)
+	
+	local angle = Vector3.Angle(dir, target.forward)
+
+	--Debug.Log(" ---sun--- angle: "..angle.."nFriends: "..nFriends)
+
+	for i = 1,chunk do
+		angle = (angle + angleSeed)%180
+		local tAngle = angle / 180
+		local newpos = Vector3Lerp(forward, forwardR, tAngle)
+		
+		--Debug.Log("-----got z == "..newpos.z..'\ntAngle = '..tAngle);
+
+		local z = newpos.z ~=nil and newpos.z or 0
+		local absz = z < 0 and z * -1 or z
+		local x = 1 - absz
+		local x0 = target.x + x*radius
+		local z0 = target.z + z*radius
+
+		local moveto = Vector3.New(x0,0,z0)
+
+		--reset
+		myself.entity.targetPos = nil
+		local isConflict = false;
+
+		--if cc.isValidPlaceInScene(x0, z0, -2, -1) then
+			for k, v in Util.pairs(allFriends) do
+				--too near, break
+				if allFriends[k] == nil then 
+					Debug.Log("--- sun --- k is nil " ..k);
+					break
+				end
+
+
+				local aFriend = allFriends[k]
+
+				--if aFriend.targetPos ~= nil then
+				--	Debug.Log("--- sun --- have pos ")
+				--end
+
+				if aFriend.targetPos ~= nil 
+					and aFirend ~= myself 
+					and Vector3Dis(aFriend.targetPos, moveto) < 0.5 then
+
+					--Debug.Log("---sun ----Collision----"..k)
+					isConflict = true;
+					break
+				end
+			end
+
+			if isConflict == false then
+				local dis = Vector3Dis(moveto, target)
+				local tdir = Util.Vector3Sub(moveto, target)
+				local tangle =  Vector3.Angle(tdir, target.forward)
+				Debug.Log("--- sun --- enemy id["..myself.entity.data.g_instanceID.."] Move to dis "..dis.." angle "..angle.." tangle "..tangle)
+				myself.entity.targetPos = moveto
+				return  myself.entity.targetPos
+			end
+		--else 
+		--	Debug.Log("--- sun -- not valid")
+		--end
+	end
+
+	-- don't move
+	Debug.Log("----don't move!----")
+	return Vector3.New(myself.entity.root.position.x, 0, myself.entity.root.position.z)
+end
+--]]
+
+
+--ver 0.2
+function cc.getPointAtCircleExcludeFriends(myself, radius, chunk, target, allFriends) 
+	--divide the circle to 18 parts and exclude parts exist friends
+	
+	local angleSeed = 180 / chunk
+	local list = {}
+	local nFriends = Util.getTableCount(allFriends)
+
+	local nATK = 0
+	local posarr ={}
+
+	local mydis = Vector3Dis(myself.entity.root.position, target)
+	local nSmall = 0
+
+	for k, v in Util.pairs(allFriends) do 
+		local aFriend = allFriends[k]
+		if aFriend.attacking == true and aFriend ~= myself.entity then 
+			nATK = nATK + 1
+			posarr[aFriend.targetdir] = 1
+
+			if mydis > Vector3Dis(aFriend.root.position, target) then
+				nSmall = nSmall + 1
+			end
+
+		end 
+	end
+
+	if nATK >= chunk and nSmall >= chunk then 
+		-- enough attacker , stop
+		myself.entity.attacking = false
+		--Debug.Log("--- sun --- ["..Time.time.."] enemy id["..myself.entity.data.g_instanceID.."] stop, enough attacker "..nATK.." chunk "..chunk )
+		return Vector3.New(myself.entity.root.position.x, 0, myself.entity.root.position.z)
+	end 
+	
+	--calc angle
+	
+	--local angle = target.x >= myself.entity.root.position.x and 0 or 180
+
+	local angle = 0
+
+	if myself.entity.attacking == true then
+		angle = (angle + angleSeed*myself.entity.targetdir)
+	else
+		myself.entity.attacking = true
+		local minum = 0
+		while true do
+			if posarr[minum] == nil then 
+				break
+			end
+			minum = minum+1
+		end
+		myself.entity.targetdir = minum
+		angle = (angle + angleSeed*myself.entity.targetdir)%180
+		Debug.Log("--- sun --- ["..Time.time.."] enemy id["..myself.entity.data.g_instanceID.."] Move to angle "..angle.." nATK "..nATK.. " nSmall "..nSmall .. " minum " .. minum)
+
+	end
+
+	local tAngle = angle / 180
+	local newpos = Vector3Lerp(forward, forwardR, tAngle)
+	local z = newpos.z ~=nil and newpos.z or 0
+	local absz = z < 0 and z * -1 or z
+	local x = 1 - absz
+	local x0 = target.x + x*radius
+	local z0 = target.z + z*radius
+
+	local moveto = Vector3.New(x0,0,z0)
+
+	local dis = Vector3Dis(moveto, target)
+	local tmpdir = Util.Vector3Sub(moveto, target)
+	local tmpangle =  Vector3.Angle(tmpdir, target.forward)
+	
+	--Debug.Log("--- sun --- ["..Time.time.."] enemy id["..myself.entity.data.g_instanceID.."] Move to dis "..dis.." angle "..angle.." tangle "..tmpangle.. " nATK "..nATK.." x0 "..x0.." z0 "..z0.. " nSmall "..nSmall)
+
+	return moveto
+
+end
+
+return cc

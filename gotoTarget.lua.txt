@@ -1,0 +1,154 @@
+--[[ if this entity have pickup items need ]]
+
+local cc = class()
+local Time = Time
+local Vector3Dis  = Vector3.Distance
+
+--=================================
+-- #task is lua c# task
+
+-- LuaBehaviorConditional
+-- LuaBehaviorAction
+
+--[[
+	public LuaFunction l_Awake = null;
+	public LuaFunction l_Start = null;
+	public LuaFunction l_Update = null;
+	public LuaFunction l_End = null;
+	public LuaFunction l_Pause = null;
+	public LuaFunction l_Restart = null;
+	public LuaFunction l_ResetValue = null;
+]]
+
+--=================================
+function cc:ctor(task,entity)
+	if task == nil then
+		Debug.Log("cant add checking pickup item task for null task");
+		return self
+	end
+
+	task.l_Awake = function( ) 
+		self:Awake() 
+	end
+
+	task.l_Start = function ( )
+		self:Start()
+	end
+	
+	task.l_Update = function( )
+		return self:Update()
+	end
+
+	self.entity = entity
+	return self
+end
+
+--=================================
+-- run once
+--=================================
+function cc:Awake( )
+	self.firstAttack = self.entity:getFirstAttackData()
+	if self.firstAttack == nil then
+		self.firstAttack = {range = {x = 2 , y = 1}}
+	end
+	self.intervalTime = 2
+	self.equipSkillLength = Util.getTableCount(self.entity:getReadySkills())
+	--Debug.Log("ai firstAttack range = "..SerializeTable(self.firstAttack.range))
+
+	self.currentScene = CurrentScene
+end
+
+--=================================
+-- each time will into start.
+--=================================
+function cc:Start( )
+	self.target = self.entity ~= nil and self.entity.ai_target or nil
+	self.startTime = Time.time
+
+	--get next skill range??
+	self.nextSkill = nil
+	self.readySkills = self.entity:getReadySkills()
+	if Util.tableIsEmpty(self.readySkills) == false then
+		for k,v in Util.pairs(self.readySkills) do
+			if self:checkIfSkillUsedBefore(v.rid) == false then
+				self.nextSkill = v
+			end
+		end
+	end
+
+	-- just hack the api to get the enemy list
+	self.allFriends = self.currentScene ~= nil and self.currentScene:getEnemyList(CS_ENTITY_TYPE.Player) or nil
+	
+end
+
+--=================================
+-- check entity hp is less than ? and have something to drink.
+--=================================
+function cc:Update( )
+	--Debug.Log("gotoTarget 1");
+	--check if entity have target?
+	if self.target == nil or self.target.root == nil or self.target.isDied == true or self.allFriends == nil then return CS_BEHAVIOR_STATU.Failure end
+
+	--check if in attack range
+	if AIHelper.checkTargetInSkillRange(self:getSkill(),self.entity,self.target) == true then
+		return CS_BEHAVIOR_STATU.Success
+	else
+		if Time.time - self.startTime > self.intervalTime  then
+			self.entity:stopMove()
+			return CS_BEHAVIOR_STATU.Success
+		end
+
+		--get move target position
+		local target_at_right = self.target.root.position.x >= self.entity.root.position.x and true or false
+
+		--if xy or xz axis
+		if self.entity:checkIsXYaxis() == false then
+
+--[[--
+			local targetPos = self.target.root.position
+			local skillRange = self:getSkill().range
+			local x = target_at_right == false and targetPos.x + skillRange.x * 0.8 or targetPos.x - skillRange.x * 0.8
+			self.entity:moveToXZ(x,targetPos.z)
+--]]
+
+			local targetPos = self.target.root.position
+--			Debug.Log("---suntarget: "..targetPos.x..targetPos.z)
+
+			local myself = self
+			local radius = 3
+			local chunk = 4
+			local movePos = AIHelper.getPointAtCircleExcludeFriends(myself, radius, chunk, targetPos, self.allFriends)
+
+
+--			Debug.Log("---sun--move: "..movePos.x..movePos.z)
+
+			
+			self.entity:moveToXZ(movePos.x, movePos.z)
+			
+			
+
+
+		elseif self.entity.canUseSkillHeight ~= nil then
+			local targetPos = self.target.root.position
+			local skillRange = self:getSkill().range
+			local x = target_at_right == false and targetPos.x + skillRange.x * 0.1 or targetPos.x - skillRange.x * 0.1
+			self.entity:moveToXY(x,self.entity.canUseSkillHeight - 0.1)
+		end
+
+		return CS_BEHAVIOR_STATU.Running
+	end
+
+	return CS_BEHAVIOR_STATU.Success
+	--return CS_BEHAVIOR_STATU.Failure
+end
+
+function cc:getSkill( )
+	return self.nextSkill ~= nil and self.nextSkill or self.firstAttack
+end
+
+function cc:checkIfSkillUsedBefore(skillId )
+	if self.entity.ai_usedSkillList[skillId] ~= nil then return true end
+	return false
+end
+
+return cc
